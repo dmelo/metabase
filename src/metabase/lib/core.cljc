@@ -4,6 +4,12 @@
   (:refer-clojure :exclude [filter remove replace and or not = < <= > ->> >= not-empty case count distinct max min
                             + - * / time abs concat replace ref var float])
   (:require
+   <<<<<<<
+   =======
+   >>>>>>>
+   HEAD
+   (Use middleware instead of external query rewriting)
+   f47f0c96ebe
    [metabase.lib.aggregation :as lib.aggregation]
    [metabase.lib.binning :as lib.binning]
    [metabase.lib.breakout :as lib.breakout]
@@ -65,7 +71,6 @@
    [metabase.lib.util.unique-name-generator]
    [metabase.lib.validate :as lib.validate]
    [metabase.lib.walk.util]
-   [metabase.util :as u]
    [metabase.util.malli :as mu]
    [metabase.util.namespaces :as shared.ns]))
 
@@ -584,10 +589,3 @@
   **Code Health:** Healthy."
   [field-display-name :- :string]
   (lib.util/strip-id field-display-name))
-
-;; TODO (Chris 2026-02-12) Re-evaluate whether on-demand table remapping should be coordinated by QP.
-;; See some discussion in https://github.com/metabase/metabase/pull/69561
-(defn update-native-stage
-  "Perform a transformation on the native query stage, if it exists."
-  [qry f & args]
-  (apply u/update-in-if-exists qry [:stages 0 :native] f args))
