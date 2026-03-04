@@ -4,12 +4,6 @@
   (:refer-clojure :exclude [filter remove replace and or not = < <= > ->> >= not-empty case count distinct max min
                             + - * / time abs concat replace ref var float])
   (:require
-   <<<<<<<
-   =======
-   >>>>>>>
-   HEAD
-   (Use middleware instead of external query rewriting)
-   f47f0c96ebe
    [metabase.lib.aggregation :as lib.aggregation]
    [metabase.lib.binning :as lib.binning]
    [metabase.lib.breakout :as lib.breakout]

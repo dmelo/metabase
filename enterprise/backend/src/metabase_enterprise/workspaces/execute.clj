@@ -9,8 +9,7 @@
    [metabase.query-processor :as qp]
    [metabase.transforms-base.core :as transforms-base]
    [metabase.transforms-base.util :as transforms-base.u]
-   [metabase.util.log :as log]
-   [toucan2.core :as t2]))
+   [metabase.util.log :as log]))
 
 (set! *warn-on-reflection* true)
 
