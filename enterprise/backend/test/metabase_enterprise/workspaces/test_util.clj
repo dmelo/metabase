@@ -411,9 +411,7 @@
   "Create a simple workspace and wait for it to finish initializing database resources.
    Throws if workspace does not become ready."
   [name]
-  (let [graph {:workspace {:name name, :definitions {:x2 [:t1]}}}
-        ws-id (:workspace-id (create-resources! graph))]
-    (ws-ready! ws-id)))
+  (ws-ready! (initialize-ws! name)))
 
 (defn do-with-workspaces!
   "Function that sets up workspaces for testing and cleans up afterwards.
