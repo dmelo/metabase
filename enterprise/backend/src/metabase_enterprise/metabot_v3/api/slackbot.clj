@@ -6,6 +6,7 @@
    [metabase-enterprise.metabot-v3.api.slackbot.client :as slackbot.client]
    [metabase-enterprise.metabot-v3.api.slackbot.config :as slackbot.config]
    [metabase-enterprise.metabot-v3.api.slackbot.events :as slackbot.events]
+   [metabase-enterprise.metabot-v3.api.slackbot.persistence :as slackbot.persistence]
    [metabase-enterprise.metabot-v3.api.slackbot.streaming :as slackbot.streaming]
    [metabase-enterprise.metabot-v3.api.slackbot.uploads :as slackbot.uploads]
    [metabase-enterprise.metabot-v3.config :as metabot-v3.config]
@@ -187,6 +188,43 @@
   (log/debugf "[slackbot] Ignoring event type=%s channel_type=%s subtype=%s ts=%s"
               (:type event) (:channel_type event) (:subtype event) (:ts event)))
 
+(def ^:private delete-reaction-names
+  "Slack emoji names that trigger metabot-response deletion."
+  #{"wastebasket" "x" "cancel" "negative_squared_cross_mark" "heavy_multiplication_x"})
+
+(defn- delete-reaction-event?
+  "True when this event is a delete reaction added to a message."
+  [event]
+  (and (= "reaction_added" (:type event))
+       (= "message" (get-in event [:item :type]))
+       (contains? delete-reaction-names (:reaction event))))
+
+(defn- handle-delete-reaction
+  "Delete a metabot response when the original request user reacts with an approved emoji."
+  [client {:keys [slack-user-id channel-id message-ts reaction]}]
+  (let [reactor-user-id (slack-id->user-id slack-user-id)]
+    (cond
+      (nil? reactor-user-id)
+      (log/debugf "[slackbot] Ignoring delete reaction from unlinked slack user=%s reaction=%s" slack-user-id reaction)
+
+      (nil? channel-id)
+      (log/debugf "[slackbot] Ignoring delete reaction with missing channel for ts=%s" message-ts)
+
+      (nil? message-ts)
+      (log/debugf "[slackbot] Ignoring delete reaction with missing message ts in channel=%s" channel-id)
+
+      :else
+      (if-let [owner-user-id (slackbot.persistence/response-owner-user-id message-ts)]
+        (if (= reactor-user-id owner-user-id)
+          (do
+            (log/infof "[slackbot] Deleting metabot response via reaction=%s channel=%s ts=%s" reaction channel-id message-ts)
+            (slackbot.client/delete-message client {:channel channel-id
+                                                    :ts      message-ts}))
+          (log/infof "[slackbot] Ignoring delete reaction from non-owner user_id=%s owner_user_id=%s channel=%s ts=%s reaction=%s"
+                     reactor-user-id owner-user-id channel-id message-ts reaction))
+        (log/debugf "[slackbot] Ignoring delete reaction for untracked message channel=%s ts=%s reaction=%s"
+                    channel-id message-ts reaction)))))
+
 (defn- assert-setup-complete
   "Asserts that all required Slack settings have been configured."
   []
@@ -214,6 +252,16 @@
          (slackbot.events/file-share? event)
          (slackbot.events/dm-or-channel-mention? event (slackbot.client/get-bot-user-id client)))
         (process-async handle-message-file-share client event)
+
+        (delete-reaction-event? event)
+        (future
+          (try
+            (handle-delete-reaction client {:slack-user-id (:user event)
+                                            :channel-id    (get-in event [:item :channel])
+                                            :message-ts    (get-in event [:item :ts])
+                                            :reaction      (:reaction event)})
+            (catch Exception e
+              (log/error e "[slackbot] Error handling delete reaction"))))
 
         (or (slackbot.events/app-mention? event)
             (slackbot.events/dm? event))
@@ -378,6 +426,25 @@
         (catch Exception e
           (log/errorf e "[slackbot] Error opening feedback modal: %s" (ex-data e)))))))
 
+(defn- handle-delete-action
+  "Handle deleting a metabot response message from Slack.
+   Only the user who triggered the response can delete it."
+  [{:keys [slack-user-id channel-id message-ts]}]
+  (let [request-user-id (slack-id->user-id slack-user-id)
+        owner-user-id   (when message-ts (slackbot.persistence/response-owner-user-id message-ts))
+        client          {:token (channel.settings/unobfuscated-slack-app-token)}]
+    (when (and request-user-id
+               channel-id
+               message-ts
+               owner-user-id
+               (= request-user-id owner-user-id))
+      (future
+        (try
+          (slackbot.client/delete-message client {:channel channel-id
+                                                  :ts      message-ts})
+          (catch Exception e
+            (log/errorf e "[slackbot] Error deleting metabot response: %s" (ex-data e))))))))
+
 (defn- handle-feedback-modal-submission
   "Handle submission of the feedback details modal.
    Always submits to Harbormaster (the modal opening already captured positive/negative),
@@ -421,12 +488,19 @@
               channel-id (get-in payload [:channel :id])
               message-ts (get-in payload [:message :ts])]
           (doseq [action actions]
-            (when (= (:action_id action) "metabot_feedback")
+            (case (:action_id action)
+              "metabot_feedback"
               (handle-feedback-action {:action        action
                                        :trigger-id    trigger-id
                                        :slack-user-id slack-user
                                        :channel-id    channel-id
-                                       :message-ts    message-ts}))))
+                                       :message-ts    message-ts})
+
+              "metabot_delete_response"
+              (handle-delete-action {:slack-user-id slack-user
+                                     :channel-id    channel-id
+                                     :message-ts    message-ts})
+              nil)))
 
         "view_submission"
         (when (= (get-in payload [:view :callback_id]) "metabot_feedback_modal")
