@@ -1651,10 +1651,10 @@
                         :data   {:rows [[1 "remapped"]]
                                  :cols [{:name #"(?i)id"} {:name #"(?i)status"}]}}]
           (testing "ad-hoc query can SELECT from transform output using schema-qualified table name"
-            (is (=? expected (run-qry (str "SELECT * FROM " (sql.u/quote-name driver/*driver* :table target-schema target-table))))))
+            (is (=? expected (run-qry (str "SELECT * FROM " target-schema "." target-table)))))
           (when default-schema
             (testing "ad-hoc query can SELECT from transform output using unqualified table name"
-              (is (=? expected (run-qry (str "SELECT * FROM " (sql.u/quote-name driver/*driver* :table target-table))))))))))))
+              (is (=? expected (run-qry (str "SELECT * FROM " target-table)))))))))))
 
 (deftest ^:synchronized adhoc-query-uses-isolated-credentials-test
   (testing "POST /api/ee/workspace/:id/query executes with workspace isolated credentials"
