@@ -302,7 +302,7 @@
   :transforms)
 
 (define-premium-feature ^{:added "0.59.0"} enable-transforms-basic?
-  "Should we allow users to use basic transforms?"
+  "Should we allow users to use transforms? Replacement for transforms"
   :transforms-basic)
 
 (define-premium-feature ^{:added "0.57.0"} enable-python-transforms?
