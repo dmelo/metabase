@@ -28,7 +28,7 @@
 
 (deftest transform-event-creates-sync-object-when-setting-enabled-test
   (testing "Creating a transform creates a RemoteSyncObject entry when remote-sync-transforms is enabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms true
                                          remote-sync-enabled true]
         (mt/with-temp [:model/Collection {coll-id :id} {:name "Transforms Collection" :namespace collection/transforms-ns}
@@ -41,7 +41,7 @@
 
 (deftest transform-event-ignored-when-setting-disabled-test
   (testing "Transform events are ignored when remote-sync-transforms is disabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms false
                                          remote-sync-enabled true]
         (mt/with-temp [:model/Collection {coll-id :id} {:name "Transforms Collection" :namespace collection/transforms-ns}
@@ -54,7 +54,7 @@
 
 (deftest transform-event-updates-sync-object-test
   (testing "Updating a transform updates the RemoteSyncObject entry when setting is enabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms true
                                          remote-sync-enabled true]
         (mt/with-temp [:model/Collection {coll-id :id} {:name "Transforms Collection" :namespace collection/transforms-ns}
@@ -74,7 +74,7 @@
 
 (deftest transform-tag-event-creates-sync-object-test
   (testing "Creating a transform tag creates a RemoteSyncObject entry when transform sync is enabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms true
                                          remote-sync-enabled true]
         (mt/with-temp [:model/TransformTag tag {:name "Test Tag"}]
@@ -86,7 +86,7 @@
 
 (deftest transform-tag-event-ignored-when-disabled-test
   (testing "TransformTag events are ignored when transform sync is disabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms false
                                          remote-sync-enabled true]
         (mt/with-temp [:model/TransformTag tag {:name "Test Tag"}]
@@ -98,7 +98,7 @@
 
 (deftest transforms-namespace-collection-tracked-when-setting-enabled-test
   (testing "Transforms-namespace collection creates RemoteSyncObject entry when setting is enabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms true
                                          remote-sync-enabled true]
         (mt/with-temp [:model/Collection coll {:name "Transforms Collection" :namespace collection/transforms-ns :location "/"}]
@@ -110,7 +110,7 @@
 
 (deftest transforms-namespace-collection-ignored-when-setting-disabled-test
   (testing "Transforms-namespace collection is NOT tracked when setting is disabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms false
                                          remote-sync-enabled true]
         (mt/with-temp [:model/Collection coll {:name "Transforms Collection" :namespace collection/transforms-ns :location "/"}]
@@ -122,7 +122,7 @@
 
 (deftest enable-transform-sync-marks-all-transforms-test
   (testing "Enabling transform sync creates a single Transforms RSO with model_id=-1 and status 'create'"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-enabled true]
         ;; Clean up any existing Transforms root RSO first
         (t2/delete! :model/RemoteSyncObject
@@ -149,7 +149,7 @@
 
 (deftest disable-transform-sync-removes-all-tracking-test
   (testing "Disabling transform sync creates a Transforms RSO with status 'delete'"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms false
                                          remote-sync-enabled true]
         (mt/with-temp [:model/Collection {coll-id :id} {:name "Transforms Collection" :namespace collection/transforms-ns}
@@ -170,7 +170,7 @@
 
 (deftest transforms-included-in-dirty-check-when-enabled-test
   (testing "Transforms are included in dirty check when setting is enabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms true
                                          remote-sync-enabled true]
         (mt/with-temp [:model/Collection {coll-id :id} {:name "Transforms Collection" :namespace collection/transforms-ns}
@@ -185,7 +185,7 @@
 
 (deftest transforms-excluded-from-dirty-check-when-disabled-test
   (testing "Transforms are excluded from dirty check when setting is disabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms false
                                          remote-sync-enabled true]
         (mt/with-temp [:model/Collection {coll-id :id} {:name "Transforms Collection" :namespace collection/transforms-ns}
@@ -200,7 +200,7 @@
 
 (deftest transform-tags-included-in-dirty-check-when-enabled-test
   (testing "TransformTags are included in dirty check when transform sync is enabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms true
                                          remote-sync-enabled true]
         (mt/with-temp [:model/TransformTag tag {:name "Dirty Tag"}
@@ -214,7 +214,7 @@
 
 (deftest transform-tags-excluded-from-dirty-check-when-disabled-test
   (testing "TransformTags are excluded from dirty check when transform sync is disabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-transforms false
                                          remote-sync-enabled true]
         (mt/with-temp [:model/TransformTag tag {:name "Dirty Tag"}
@@ -228,7 +228,7 @@
 
 (deftest export-includes-transforms-namespace-collections-test
   (testing "Export includes transforms-namespace collections when setting is enabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-type :read-write
                                          remote-sync-transforms true
                                          remote-sync-enabled true]
@@ -257,7 +257,7 @@
 
 (deftest export-excludes-transforms-when-setting-disabled-test
   (testing "Export excludes transforms when setting is disabled"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-type :read-write
                                          remote-sync-transforms false
                                          remote-sync-enabled true]
@@ -308,7 +308,7 @@ is_sample: false
 
 (deftest import-transforms-from-transforms-namespace-collection-test
   (testing "Import brings in transforms located inside a transforms-namespace collection"
-    (mt/with-premium-features #{:transforms}
+    (mt/with-premium-features #{:transforms-basic}
       (mt/with-temporary-setting-values [remote-sync-enabled true]
         (mt/with-model-cleanup [:model/Transform :model/Collection]
           (let [task-id             (t2/insert-returning-pk! :model/RemoteSyncTask {:sync_task_type "import" :initiated_by (mt/user->id :rasta)})

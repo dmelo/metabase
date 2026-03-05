@@ -359,6 +359,7 @@ export const tokenFeatures = [
   "semantic_search",
   "transforms",
   "transforms-python",
+  "transforms-basic",
   "library",
   "support-users",
   "tenants",
