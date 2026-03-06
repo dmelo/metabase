@@ -126,6 +126,55 @@
                 :fk_target_field_id  (:fk-target-field-id col)})
              columns)))))
 
+;;; -------------------------------------- Lightweight Table Summary for Auto-Selection --------------------------------------
+
+(def ^:private max-tables-for-auto-selection
+  "Maximum number of tables to send in the lightweight summary for auto-selection.
+   Tables are ordered by view_count descending so the most-used tables come first."
+  300)
+
+(defn- fetch-all-accessible-tables
+  "Fetch all active, visible tables in a database that the current user can access.
+   Returns a sequence of table records with :id, :name, :schema, :description.
+   Ordered by view_count descending, limited to `max-tables-for-auto-selection`."
+  [database-id]
+  (let [{:keys [clause with]} (mi/visible-filter-clause
+                               :model/Table :id
+                               {:user-id       api/*current-user-id*
+                                :is-superuser? api/*is-superuser?*}
+                               {:perms/view-data      :unrestricted
+                                :perms/create-queries :query-builder-and-native})]
+    (t2/select [:model/Table :id :name :schema :description]
+               :db_id database-id
+               :active true
+               :visibility_type nil
+               (cond-> {:where    clause
+                        :order-by [[:view_count :desc]]
+                        :limit    max-tables-for-auto-selection}
+                 with (assoc :with with)))))
+
+(defn build-table-summary-context
+  "Build a lightweight table listing for LLM table selection.
+   Returns a vector of maps with :id, :name, :schema, :description, and :column_names.
+   This is intentionally lightweight (~50 tokens per table) to fit hundreds of tables in context."
+  [database-id]
+  (let [tables (fetch-all-accessible-tables database-id)]
+    (when (seq tables)
+      (lib-be/with-metadata-provider-cache
+        (let [mp (lib-be/application-database-metadata-provider database-id)
+              _  (lib.metadata/bulk-metadata mp :metadata/table (map :id tables))]
+          (mapv (fn [table]
+                  (let [columns (fetch-table-columns mp (:id table))
+                        col-names (str/join ", " (map :name columns))]
+                    {:id           (:id table)
+                     :name         (:name table)
+                     :schema       (:schema table)
+                     :description  (:description table)
+                     :column_names col-names}))
+                tables))))))
+
+;;; ------------------------------------------- Field Values & FK Targets -------------------------------------------
+
 (defn- fetch-field-values
   "Fetch or create FieldValues for columns that should have them.
    Uses get-or-create-full-field-values! which will:

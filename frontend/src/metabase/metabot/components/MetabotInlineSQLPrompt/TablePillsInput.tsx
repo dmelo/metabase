@@ -173,7 +173,7 @@ export function TablePillsInput({
                     <PillsInput.Field
                       disabled={disabled}
                       value={search}
-                      placeholder={t`First, tell Metabot which tables to use`}
+                      placeholder={t`Specify tables to use (or leave empty for auto-detection)`}
                       fz="0.75rem"
                       onClick={() => {
                         setFocusedTableId(undefined);

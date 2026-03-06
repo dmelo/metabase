@@ -105,7 +105,7 @@ export const MetabotInlineSQLPrompt = ({
           value={value}
           placeholder={
             isTableBarEnabled
-              ? t`Then, ask for what you'd like to see. Type @ to mention an item.`
+              ? t`Describe what you'd like to see. Tables will be auto-detected, or type @ to mention specific ones.`
               : t`Describe what SQL you want, type @ to mention an item.`
           }
           autoFocus={!isTableBarEnabled}
