@@ -38,7 +38,7 @@ function setup({
   const settings = createMockSettings({
     "is-hosted?": isHosted,
     "token-features": createMockTokenFeatures({
-      transforms: hasBasicTransforms,
+      "transforms-basic": hasBasicTransforms,
       "transforms-python": hasPythonTransforms,
     }),
   });
@@ -47,7 +47,7 @@ function setup({
     settings: mockSettings({
       "is-hosted?": isHosted,
       "token-features": createMockTokenFeatures({
-        transforms: hasBasicTransforms,
+        "transforms-basic": hasBasicTransforms,
         "transforms-python": hasPythonTransforms,
       }),
     }),

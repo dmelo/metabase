@@ -11,7 +11,7 @@ const TRANSFORMS_PRODUCT_TYPES = ["transforms"] as const;
 export function useTransformsBilling() {
   const tokenStatus = useSetting("token-status");
   const isHosted = useSelector(getIsHosted);
-  const hasTransforms = useHasTokenFeature("transforms");
+  const hasTransforms = useHasTokenFeature("transforms-basic");
   const hasPythonTransforms = useHasTokenFeature("transforms-python");
 
   const {

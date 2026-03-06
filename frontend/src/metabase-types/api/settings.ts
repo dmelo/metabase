@@ -280,7 +280,7 @@ const tokenStatusFeatures = [
   "sso-ldap",
   "sso-saml",
   "sso",
-  "transforms",
+  "transforms-basic",
   "transforms-python",
   "upload-management",
   "whitelabel",
