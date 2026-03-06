@@ -355,6 +355,47 @@
           (is (str/includes? result "-- Customer purchase transactions"))
           (is (str/includes? result "CREATE TABLE")))))))
 
+;;; ----------------------------------------- build-table-summary-context Tests -----------------------------------------
+
+(deftest build-table-summary-context-test
+  (mt/with-test-user :crowberto
+    (mt/with-temp [:model/Database db    {}
+                   :model/Table    t1    {:db_id (:id db) :name "users" :schema "public"
+                                          :description "App users" :view_count 100}
+                   :model/Field    _f1   {:table_id (:id t1) :name "id" :database_type "INTEGER" :base_type :type/Integer}
+                   :model/Field    _f2   {:table_id (:id t1) :name "email" :database_type "VARCHAR" :base_type :type/Text}
+                   :model/Table    t2    {:db_id (:id db) :name "orders" :schema "public"
+                                          :description "Purchase orders" :view_count 50}
+                   :model/Field    _f3   {:table_id (:id t2) :name "id" :database_type "INTEGER" :base_type :type/Integer}
+                   :model/Field    _f4   {:table_id (:id t2) :name "user_id" :database_type "INTEGER" :base_type :type/Integer}]
+      (testing "returns table summaries with column names"
+        (let [result (context/build-table-summary-context (:id db))]
+          (is (vector? result))
+          (is (= 2 (count result)))
+          ;; Tables ordered by view_count desc
+          (let [first-table (first result)]
+            (is (= "users" (:name first-table)))
+            (is (= "public" (:schema first-table)))
+            (is (= "App users" (:description first-table)))
+            (is (string? (:column_names first-table)))
+            (is (str/includes? (:column_names first-table) "id"))
+            (is (str/includes? (:column_names first-table) "email")))))
+
+      (testing "returns nil for database with no tables"
+        (mt/with-temp [:model/Database empty-db {}]
+          (is (nil? (context/build-table-summary-context (:id empty-db)))))))))
+
+(deftest ^:parallel build-table-summary-context-column-cap-test
+  (testing "truncates column names for wide tables"
+    (let [max-cols @#'context/max-columns-per-table-summary
+          columns  (mapv (fn [i] {:name (str "col_" i)}) (range (+ max-cols 5)))
+          all-names (map :name columns)
+          truncated? (> (count all-names) max-cols)
+          col-names (cond-> (str/join ", " (take max-cols all-names))
+                      truncated? (str ", ..."))]
+      (is (str/ends-with? col-names ", ..."))
+      (is (not (str/includes? col-names (str "col_" (+ max-cols 1))))))))
+
 ;;; ----------------------------------------- extract-tables-from-sql Tests -----------------------------------------
 
 (deftest extract-tables-from-sql-test
