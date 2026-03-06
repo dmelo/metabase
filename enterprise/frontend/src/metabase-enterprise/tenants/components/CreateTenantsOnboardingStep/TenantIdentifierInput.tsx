@@ -10,10 +10,12 @@ export const TenantIdentifierInput = ({
   value,
   onChange,
   selectedFieldIds,
+  columnName,
 }: {
   value: string;
   onChange: (value: string) => void;
   selectedFieldIds?: FieldId[];
+  columnName?: string | null;
 }) => {
   // Fetch value from first field only.
   // We expect all tables to share the same multi-tenancy column,
@@ -29,6 +31,10 @@ export const TenantIdentifierInput = ({
         .t`e.g. ${suggestions[0]}`
     : c("example tenant identifier value").t`e.g. acme-corp`;
 
+  const description = columnName
+    ? t`Insert a value matching the selected column ${columnName}`
+    : config.description;
+
   return (
     <Stack gap="xs">
       <Text fw="bold" size="sm">
@@ -36,7 +42,7 @@ export const TenantIdentifierInput = ({
       </Text>
 
       <Text c="text-secondary" size="xs" mb="sm">
-        {config.description}
+        {description}
       </Text>
 
       <Autocomplete
@@ -44,7 +50,7 @@ export const TenantIdentifierInput = ({
         onChange={onChange}
         data={suggestions}
         placeholder={placeholder}
-        aria-label={t`tenant_identifier`}
+        aria-label={t`organization_id`}
       />
     </Stack>
   );
