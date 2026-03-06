@@ -5,13 +5,14 @@ Given a user's natural language question, identify which tables are needed to wr
 ## Available Tables
 
 {{#tables}}
-- {{name}}{{#schema}} (schema: {{schema}}){{/schema}} [id: {{id}}]{{#description}} -- {{description}}{{/description}}
-  Columns: {{column_names}}
+- {{{name}}}{{#schema}} (schema: {{{schema}}}){{/schema}} [id: {{id}}]{{#description}} -- {{{description}}}{{/description}}
+  Columns: {{{column_names}}}
 {{/tables}}
 
 ## Instructions
 
 - Select ONLY the tables necessary to answer the question
+- Prefer the smallest sufficient set of tables
 - Include tables needed for JOINs (e.g., if a column like `user_id` suggests a relationship, include the target table)
-- When in doubt, include the table rather than omit it
+- Return at most 10 table IDs
 - Return the table IDs exactly as shown in brackets above

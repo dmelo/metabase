@@ -139,6 +139,11 @@
    Tables are ordered by view_count descending so the most-used tables come first."
   300)
 
+(def ^:private max-columns-per-table-summary
+  "Maximum number of column names to include per table in the auto-selection summary.
+   Wide tables are truncated to keep prompt size predictable."
+  30)
+
 (defn- fetch-all-accessible-tables
   "Fetch all active, visible tables in a database that the current user can access.
    Returns a sequence of table records with :id, :name, :schema, :description.
@@ -163,8 +168,11 @@
         (let [mp (lib-be/application-database-metadata-provider database-id)
               _  (lib.metadata/bulk-metadata mp :metadata/table (map :id tables))]
           (mapv (fn [table]
-                  (let [columns (fetch-table-columns mp (:id table))
-                        col-names (str/join ", " (map :name columns))]
+                  (let [columns   (fetch-table-columns mp (:id table))
+                        all-names (map :name columns)
+                        truncated? (> (count all-names) max-columns-per-table-summary)
+                        col-names (cond-> (str/join ", " (take max-columns-per-table-summary all-names))
+                                    truncated? (str ", ..."))]
                     {:id           (:id table)
                      :name         (:name table)
                      :schema       (:schema table)

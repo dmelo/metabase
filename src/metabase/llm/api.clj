@@ -126,6 +126,10 @@
                           :result       result}
                          api/*current-user-id*))
 
+(def ^:private max-auto-selected-tables
+  "Hard cap on tables the LLM can auto-select, to bound downstream DDL/fingerprinting cost."
+  10)
+
 (defn- auto-select-tables
   "Use the LLM to automatically select relevant tables for a query.
    Returns a set of table IDs selected by the LLM, or throws if none could be identified."
@@ -152,7 +156,9 @@
         (when (empty? table-ids)
           (throw (ex-info (tru "Could not identify relevant tables for your question. Try using @mentions to specify tables.")
                           {:status-code 400})))
-        table-ids))))
+        (if (> (count table-ids) max-auto-selected-tables)
+          (set (take max-auto-selected-tables table-ids))
+          table-ids)))))
 
 (api.macros/defendpoint :get "/list-models"
   :- [:map [:models [:sequential [:map
