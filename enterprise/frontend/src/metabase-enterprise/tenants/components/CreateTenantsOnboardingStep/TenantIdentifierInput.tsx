@@ -1,4 +1,4 @@
-import { c, t } from "ttag";
+import { c, jt, t } from "ttag";
 
 import { Autocomplete, Stack, Text } from "metabase/ui";
 import type { FieldId } from "metabase-types/api";
@@ -32,7 +32,7 @@ export const TenantIdentifierInput = ({
     : c("example tenant identifier value").t`e.g. acme-corp`;
 
   const description = columnName
-    ? t`Insert a value matching the selected column ${columnName}`
+    ? jt`Enter a value that matches the ${(<strong key="col">{columnName}</strong>)} column.`
     : config.description;
 
   return (

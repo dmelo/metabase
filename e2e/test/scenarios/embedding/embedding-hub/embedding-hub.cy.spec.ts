@@ -817,6 +817,11 @@ describe("scenarios - embedding hub", () => {
       cy.log("navigate to create tenants step");
       H.main().findByRole("listitem", { name: "Create tenants" }).click();
 
+      cy.log("should show dynamic description with the selected column name");
+      H.main()
+        .contains("Enter a value that matches the User ID column.")
+        .should("be.visible");
+
       cy.log("fill out the tenant form");
       H.main().within(() => {
         cy.findByPlaceholderText("Tenant name").clear().type("Acme Corp");
