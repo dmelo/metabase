@@ -83,23 +83,29 @@
 
 ;;; ------------------------------------------ Permission-Filtered Fetch ------------------------------------------
 
+(defn- accessible-table-query-opts
+  "Build query options (where clause + optional CTE) for filtering tables
+   to those the current user can access with native query permissions."
+  []
+  (let [{:keys [clause with]} (mi/visible-filter-clause
+                               :model/Table :id
+                               {:user-id       api/*current-user-id*
+                                :is-superuser? api/*is-superuser?*}
+                               {:perms/view-data      :unrestricted
+                                :perms/create-queries :query-builder-and-native})]
+    (cond-> {:where clause}
+      with (assoc :with with))))
+
 (defn- fetch-accessible-tables
   "Fetch tables by ID, filtering to only those the current user can access.
    Returns a map of table-id -> table record."
   [table-ids]
   (when (seq table-ids)
-    (let [{:keys [clause with]} (mi/visible-filter-clause
-                                 :model/Table :id
-                                 {:user-id       api/*current-user-id*
-                                  :is-superuser? api/*is-superuser?*}
-                                 {:perms/view-data      :unrestricted
-                                  :perms/create-queries :query-builder-and-native})
-          tables (t2/select :model/Table
+    (let [tables (t2/select :model/Table
                             :id [:in table-ids]
                             :active true
                             :visibility_type nil
-                            (cond-> {:where clause}
-                              with (assoc :with with)))]
+                            (accessible-table-query-opts))]
       (into {} (map (juxt :id identity)) tables))))
 
 ;;; ----------------------------------------- Metadata Provider Column Fetch -----------------------------------------
@@ -138,20 +144,13 @@
    Returns a sequence of table records with :id, :name, :schema, :description.
    Ordered by view_count descending, limited to `max-tables-for-auto-selection`."
   [database-id]
-  (let [{:keys [clause with]} (mi/visible-filter-clause
-                               :model/Table :id
-                               {:user-id       api/*current-user-id*
-                                :is-superuser? api/*is-superuser?*}
-                               {:perms/view-data      :unrestricted
-                                :perms/create-queries :query-builder-and-native})]
-    (t2/select [:model/Table :id :name :schema :description]
-               :db_id database-id
-               :active true
-               :visibility_type nil
-               (cond-> {:where    clause
-                        :order-by [[:view_count :desc]]
-                        :limit    max-tables-for-auto-selection}
-                 with (assoc :with with)))))
+  (t2/select [:model/Table :id :name :schema :description]
+             :db_id database-id
+             :active true
+             :visibility_type nil
+             (merge (accessible-table-query-opts)
+                    {:order-by [[:view_count :desc]]
+                     :limit    max-tables-for-auto-selection})))
 
 (defn build-table-summary-context
   "Build a lightweight table listing for LLM table selection.

@@ -20,6 +20,7 @@
    [metabase.request.core :as request]
    [metabase.util :as u]
    [metabase.util.i18n :refer [tru]]
+   [metabase.util.log :as log]
    [stencil.core :as stencil]
    [throttle.core :as throttle]
    [toucan2.core :as t2])
@@ -128,30 +129,30 @@
 (defn- auto-select-tables
   "Use the LLM to automatically select relevant tables for a query.
    Returns a set of table IDs selected by the LLM, or throws if none could be identified."
-  [database-id prompt]
+  [database-id prompt dialect]
   (let [table-summaries (llm.context/build-table-summary-context database-id)]
     (when (empty? table-summaries)
       (throw (ex-info (tru "No accessible tables found in this database.")
                       {:status-code 400})))
-    (let [engine  (database-engine database-id)
-          dialect (if engine (driver/display-name engine) "SQL")
-          system-prompt (build-table-selection-prompt {:dialect dialect
+    (let [system-prompt (build-table-selection-prompt {:dialect dialect
                                                        :tables  table-summaries})
           {:keys [result usage duration-ms]} (llm.anthropic/table-selection
                                               {:system   system-prompt
-                                               :messages [{:role "user" :content prompt}]})
-          selected-ids (set (:table_ids result))
-          valid-ids    (set (map :id table-summaries))
-          table-ids    (set/intersection selected-ids valid-ids)]
+                                               :messages [{:role "user" :content prompt}]})]
       (track-token-usage! (assoc usage
                                  :duration-ms duration-ms
                                  :user-id api/*current-user-id*
                                  :source "oss_metabot"
                                  :tag "oss-table-selection"))
-      (when (empty? table-ids)
-        (throw (ex-info (tru "Could not identify relevant tables for your question. Try using @mentions to specify tables.")
-                        {:status-code 400})))
-      table-ids)))
+      (when (nil? (:table_ids result))
+        (log/warn "Table selection LLM returned unexpected result" {:result result}))
+      (let [selected-ids (set (:table_ids result))
+            valid-ids    (set (map :id table-summaries))
+            table-ids    (set/intersection selected-ids valid-ids)]
+        (when (empty? table-ids)
+          (throw (ex-info (tru "Could not identify relevant tables for your question. Try using @mentions to specify tables.")
+                          {:status-code 400})))
+        table-ids))))
 
 (api.macros/defendpoint :get "/list-models"
   :- [:map [:models [:sequential [:map
@@ -267,17 +268,17 @@
           table-ids          (set/union (or frontend-table-ids #{})
                                         (or explicit-table-ids #{})
                                         (or implicit-table-ids #{}))
+          engine             (database-engine database_id)
+          dialect            (if engine (driver/display-name engine) "SQL")
           ;; When no tables are provided, automatically select them via LLM
           table-ids          (if (empty? table-ids)
-                               (auto-select-tables database_id prompt)
+                               (auto-select-tables database_id prompt dialect)
                                table-ids)]
       (let [{:keys [ddl tables]} (llm.context/build-schema-context database_id table-ids)]
         (when-not ddl
           (throw (ex-info (tru "No accessible tables found. Check table permissions.")
                           {:status-code 400})))
-        (let [engine               (database-engine database_id)
-              dialect              (if engine (driver/display-name engine) "SQL")
-              dialect-instructions (load-dialect-instructions engine)
+        (let [dialect-instructions (load-dialect-instructions engine)
               system-prompt        (build-system-prompt {:dialect              dialect
                                                          :schema-ddl           ddl
                                                          :dialect-instructions dialect-instructions
