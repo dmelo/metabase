@@ -1010,10 +1010,7 @@
 (defmethod driver/init-workspace-isolation! :snowflake
   [_driver database workspace]
   (let [details     (driver.conn/effective-details database)
-        ;; Uppercase the schema name to match Snowflake's unquoted identifier behavior.
-        ;; Snowflake folds unquoted identifiers to uppercase, so when remapped SQL references
-        ;; this schema without quotes, it must already be uppercase to match.
-        schema-name (u/upper-case-en (driver.u/workspace-isolation-namespace-name workspace))
+        schema-name (driver.u/workspace-isolation-namespace-name workspace)
         db-name     (:db details)
         warehouse   (:warehouse details)
         role-name   (isolation-role-name workspace)

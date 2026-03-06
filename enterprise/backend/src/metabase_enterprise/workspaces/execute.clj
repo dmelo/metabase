@@ -6,6 +6,7 @@
   (:require
    [clojure.string :as str]
    [metabase-enterprise.transforms-python.python-runner :as python-runner]
+   [metabase.driver.sql.util :as sql.u]
    [metabase.query-processor :as qp]
    [metabase.sql-tools.core :as sql-tools]
    [metabase.transforms-base.core :as transforms-base]
@@ -32,18 +33,22 @@
     (update source :source-tables update-vals remap)))
 
 (defn- remap-sql-source [table-mapping source]
-  (let [remapping (reduce
-                   (fn [remapping [[_ source-schema source-table] {target-schema :schema, target-table :table}]]
-                     (assoc-in remapping [:tables {:schema source-schema
-                                                   :table  source-table}]
-                               {:schema target-schema
-                                :table  target-table}))
-                   {:schemas {}
-                    :tables  {}}
-                   ;; Strip out the numeric keys (table ids)
-                   (filter (comp vector? key) table-mapping))
-        database-id (get-in source [:query :database])
-        driver      (some->> database-id (t2/select-one-fn :engine :model/Database))]
+  (let [database-id (get-in source [:query :database])
+        driver      (some->> database-id (t2/select-one-fn :engine :model/Database))
+        ;; Pre-quote replacement schema because Macaw splices it into SQL as-is.
+        ;; Without quoting, databases like Snowflake will uppercase it, causing a mismatch
+        ;; with the actual (lowercase) schema name created during workspace isolation.
+        quote-name  (fn [s] (when s (sql.u/quote-name driver :table s)))
+        remapping   (reduce
+                     (fn [remapping [[_ source-schema source-table] {target-schema :schema, target-table :table}]]
+                       (assoc-in remapping [:tables {:schema source-schema
+                                                     :table  source-table}]
+                                 {:schema (quote-name target-schema)
+                                  :table  target-table}))
+                     {:schemas {}
+                      :tables  {}}
+                     ;; Strip out the numeric keys (table ids)
+                     (filter (comp vector? key) table-mapping))]
     (update-in source [:query :stages 0 :native]
                #(sql-tools/replace-names driver % remapping {:allow-unused? true}))))
 
