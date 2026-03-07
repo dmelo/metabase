@@ -279,39 +279,39 @@
           ;; When no tables are provided, automatically select them via LLM
           table-ids          (if (empty? table-ids)
                                (auto-select-tables database_id prompt dialect)
-                               table-ids)]
-      (let [{:keys [ddl tables]} (llm.context/build-schema-context database_id table-ids)]
-        (when-not ddl
-          (throw (ex-info (tru "No accessible tables found. Check table permissions.")
-                          {:status-code 400})))
-        (let [dialect-instructions (load-dialect-instructions engine)
-              system-prompt        (build-system-prompt {:dialect              dialect
-                                                         :schema-ddl           ddl
-                                                         :dialect-instructions dialect-instructions
-                                                         :source-sql           source_sql})
-              start-timer          (u/start-timer)]
-          (try
-            (let [{:keys [result usage duration-ms]} (llm.anthropic/chat-completion
-                                                      {:system   system-prompt
-                                                       :messages [{:role "user" :content prompt}]})]
-              (track-token-usage! (assoc usage
-                                         :duration-ms duration-ms
-                                         :user-id api/*current-user-id*
-                                         ;; for some reason, :source convention is snake_case and :tag is (mostly) kebab
-                                         :source "oss_metabot"
-                                         :tag "oss-sqlgen"))
-              (track-sqlgen-event! {:duration-ms (u/since-ms start-timer)
-                                    :result "success"
-                                    :engine engine})
-              (let [sql                 (:sql result)
-                    referenced-entities (mapv #(assoc % :model "table") tables)]
-                {:sql                 sql
-                 :referenced_entities referenced-entities}))
-            (catch Exception e
-              (track-sqlgen-event! {:duration-ms (u/since-ms start-timer)
-                                    :result "failure"
-                                    :engine engine})
-              (throw e))))))))
+                               table-ids)
+          {:keys [ddl tables]} (llm.context/build-schema-context database_id table-ids)
+          _                  (when-not ddl
+                               (throw (ex-info (tru "No accessible tables found. Check table permissions.")
+                                               {:status-code 400})))
+          dialect-instructions (load-dialect-instructions engine)
+          system-prompt      (build-system-prompt {:dialect              dialect
+                                                   :schema-ddl           ddl
+                                                   :dialect-instructions dialect-instructions
+                                                   :source-sql           source_sql})
+          start-timer        (u/start-timer)]
+      (try
+        (let [{:keys [result usage duration-ms]} (llm.anthropic/chat-completion
+                                                  {:system   system-prompt
+                                                   :messages [{:role "user" :content prompt}]})]
+          (track-token-usage! (assoc usage
+                                     :duration-ms duration-ms
+                                     :user-id api/*current-user-id*
+                                     ;; for some reason, :source convention is snake_case and :tag is (mostly) kebab
+                                     :source "oss_metabot"
+                                     :tag "oss-sqlgen"))
+          (track-sqlgen-event! {:duration-ms (u/since-ms start-timer)
+                                :result "success"
+                                :engine engine})
+          (let [sql                 (:sql result)
+                referenced-entities (mapv #(assoc % :model "table") tables)]
+            {:sql                 sql
+             :referenced_entities referenced-entities}))
+        (catch Exception e
+          (track-sqlgen-event! {:duration-ms (u/since-ms start-timer)
+                                :result "failure"
+                                :engine engine})
+          (throw e))))))
 
 (def ^{:arglists '([request respond raise])} routes
   "`/api/llm` routes."

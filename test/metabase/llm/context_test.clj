@@ -394,7 +394,7 @@
           col-names (cond-> (str/join ", " (take max-cols all-names))
                       truncated? (str ", ..."))]
       (is (str/ends-with? col-names ", ..."))
-      (is (not (str/includes? col-names (str "col_" (+ max-cols 1))))))))
+      (is (not (str/includes? col-names (str "col_" (inc max-cols))))))))
 
 ;;; ----------------------------------------- extract-tables-from-sql Tests -----------------------------------------
 
