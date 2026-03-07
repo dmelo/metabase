@@ -27,6 +27,19 @@
                                              :description "Brief explanation of the query"}}
                   :required   ["sql"]}})
 
+(def ^:private select-tables-tool
+  "Tool definition for structured table selection output.
+   Forces the model to return a JSON object with table_ids."
+  {:name        "select_tables"
+   :description "Select the database tables needed to answer the user's question. Always use this tool to return your response."
+   :input_schema {:type       "object"
+                  :properties {:table_ids {:type        "array"
+                                           :items       {:type "integer"}
+                                           :description "IDs of tables needed for the query"}
+                               :reasoning {:type        "string"
+                                           :description "Brief explanation of why these tables were chosen"}}
+                  :required   ["table_ids"]}})
+
 (defn- build-request-headers
   "Build headers for Anthropic API request."
   [api-key]
@@ -35,14 +48,16 @@
    "content-type"      "application/json"})
 
 (defn- build-request-body
-  "Build the request body for Anthropic messages API."
-  [{:keys [model system messages]}]
-  (cond-> {:model       model
-           :max_tokens  (llm.settings/llm-max-tokens)
-           :messages    messages
-           :tools       [generate-sql-tool]
-           :tool_choice {:type "tool" :name "generate_sql"}}
-    system (assoc :system system)))
+  "Build the request body for Anthropic messages API.
+   `tool` is the tool definition map to use for structured output."
+  [{:keys [model system messages tool]}]
+  (let [tool-def (or tool generate-sql-tool)]
+    (cond-> {:model       model
+             :max_tokens  (llm.settings/llm-max-tokens)
+             :messages    messages
+             :tools       [tool-def]
+             :tool_choice {:type "tool" :name (:name tool-def)}}
+      system (assoc :system system))))
 
 (defn- extract-tool-input
   "Extract the tool input from Anthropic messages response.
@@ -101,22 +116,15 @@
   []
   (list-models* (get-api-key-or-throw)))
 
-(defn chat-completion
-  "Send a chat completion request to Anthropic.
-   Returns a map with:
-   - :result      - Map with :sql and optionally :explanation from the tool response
-   - :usage       - Map with :model, :prompt (input tokens), :completion (output tokens)
-   - :duration-ms - Request duration in milliseconds
-
-   Options:
-   - :model    - Model to use (default: configured model or claude-sonnet-4-20250514)
-   - :system   - System prompt
-   - :messages - Vector of {:role :content} maps for conversation history"
-  [{:keys [model system messages]}]
+(defn- send-tool-request
+  "Send a request to the Anthropic messages API with a specific tool.
+   Returns a map with :result (tool input), :usage, and :duration-ms."
+  [{:keys [model system messages tool]}]
   (let [model      (or model (llm.settings/llm-anthropic-model))
         request    {:model    model
                     :system   system
-                    :messages messages}
+                    :messages messages
+                    :tool     tool}
         start-time (u/start-timer)]
     (try
       (let [url      (str (llm.settings/llm-anthropic-api-url) "/v1/messages")
@@ -137,3 +145,15 @@
                        :completion (:output_tokens usage)}})
       (catch Exception e
         (handle-api-error e)))))
+
+(defn chat-completion
+  "Send a chat completion request to Anthropic for SQL generation.
+   Returns a map with :result (containing :sql), :usage, and :duration-ms."
+  [opts]
+  (send-tool-request opts))
+
+(defn table-selection
+  "Send a request to Anthropic to select relevant tables for a query.
+   Returns a map with :result (containing :table_ids and :reasoning), :usage, and :duration-ms."
+  [opts]
+  (send-tool-request (assoc opts :tool select-tables-tool)))

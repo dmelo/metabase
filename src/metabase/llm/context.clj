@@ -83,23 +83,29 @@
 
 ;;; ------------------------------------------ Permission-Filtered Fetch ------------------------------------------
 
+(defn- accessible-table-query-opts
+  "Build query options (where clause + optional CTE) for filtering tables
+   to those the current user can access with native query permissions."
+  []
+  (let [{:keys [clause with]} (mi/visible-filter-clause
+                               :model/Table :id
+                               {:user-id       api/*current-user-id*
+                                :is-superuser? api/*is-superuser?*}
+                               {:perms/view-data      :unrestricted
+                                :perms/create-queries :query-builder-and-native})]
+    (cond-> {:where clause}
+      with (assoc :with with))))
+
 (defn- fetch-accessible-tables
   "Fetch tables by ID, filtering to only those the current user can access.
    Returns a map of table-id -> table record."
   [table-ids]
   (when (seq table-ids)
-    (let [{:keys [clause with]} (mi/visible-filter-clause
-                                 :model/Table :id
-                                 {:user-id       api/*current-user-id*
-                                  :is-superuser? api/*is-superuser?*}
-                                 {:perms/view-data      :unrestricted
-                                  :perms/create-queries :query-builder-and-native})
-          tables (t2/select :model/Table
+    (let [tables (t2/select :model/Table
                             :id [:in table-ids]
                             :active true
                             :visibility_type nil
-                            (cond-> {:where clause}
-                              with (assoc :with with)))]
+                            (accessible-table-query-opts))]
       (into {} (map (juxt :id identity)) tables))))
 
 ;;; ----------------------------------------- Metadata Provider Column Fetch -----------------------------------------
@@ -125,6 +131,56 @@
                 :fingerprint         (:fingerprint col)
                 :fk_target_field_id  (:fk-target-field-id col)})
              columns)))))
+
+;;; -------------------------------------- Lightweight Table Summary for Auto-Selection --------------------------------------
+
+(def ^:private max-tables-for-auto-selection
+  "Maximum number of tables to send in the lightweight summary for auto-selection.
+   Tables are ordered by view_count descending so the most-used tables come first."
+  300)
+
+(def ^:private max-columns-per-table-summary
+  "Maximum number of column names to include per table in the auto-selection summary.
+   Wide tables are truncated to keep prompt size predictable."
+  30)
+
+(defn- fetch-all-accessible-tables
+  "Fetch all active, visible tables in a database that the current user can access.
+   Returns a sequence of table records with :id, :name, :schema, :description.
+   Ordered by view_count descending, limited to `max-tables-for-auto-selection`."
+  [database-id]
+  (t2/select [:model/Table :id :name :schema :description]
+             :db_id database-id
+             :active true
+             :visibility_type nil
+             (merge (accessible-table-query-opts)
+                    {:order-by [[:view_count :desc]]
+                     :limit    max-tables-for-auto-selection})))
+
+(defn build-table-summary-context
+  "Build a lightweight table listing for LLM table selection.
+   Returns a vector of maps with :id, :name, :schema, :description, and :column_names.
+   This is intentionally lightweight (~50 tokens per table) to fit hundreds of tables in context."
+  [database-id]
+  (let [tables (fetch-all-accessible-tables database-id)]
+    (when (seq tables)
+      (lib-be/with-metadata-provider-cache
+        (let [mp (lib-be/application-database-metadata-provider database-id)
+              _  (lib.metadata/bulk-metadata mp :metadata/table (map :id tables))]
+          (mapv (fn [table]
+                  (let [columns   (fetch-table-columns mp (:id table))
+                        all-names (map :name columns)
+                        truncated? (> (count all-names) max-columns-per-table-summary)
+                        col-names (cond-> (str/join ", " (take max-columns-per-table-summary all-names))
+                                    truncated? (str ", ..."))]
+                    {:id           (:id table)
+                     :name         (:name table)
+                     :schema       (:schema table)
+                     :description  (:description table)
+                     :column_names col-names}))
+                tables))))))
+
+;;; ------------------------------------------- Field Values & FK Targets -------------------------------------------
 
 (defn- fetch-field-values
   "Fetch or create FieldValues for columns that should have them.

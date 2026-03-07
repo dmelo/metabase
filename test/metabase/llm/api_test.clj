@@ -131,12 +131,13 @@
                                               :database_id (:id db)})]
           (is (str/includes? (str response) "not configured")))))
 
-    (testing "400 when no tables found"
+    (testing "400 when no tables found via auto-selection (empty database)"
       (mt/with-temporary-setting-values [llm-anthropic-api-key "sk-ant-test"]
+        ;; No tables in the database, so auto-selection finds nothing
         (let [response (mt/user-http-request :rasta :post 400 "llm/generate-sql"
                                              {:prompt "no table mentions here"
                                               :database_id (:id db)})]
-          (is (str/includes? (str response) "No tables found")))))))
+          (is (str/includes? (str response) "No accessible tables")))))))
 
 (deftest list-models-unconfigured-test
   (testing "Returns 403 when LLM is not configured"
@@ -264,3 +265,142 @@
           (is (=? [{:data {"hashed_metabase_license_token" #"[0-9a-f]{64}"}}]
                   (->> (snowplow-test/pop-event-data-and-user-id!)
                        (filter token-usage-event?)))))))))
+
+;;; ------------------------------------------- Auto Table Selection Tests -------------------------------------------
+
+(deftest build-table-selection-prompt-test
+  (testing "builds prompt with dialect and tables"
+    (let [prompt (#'api/build-table-selection-prompt
+                  {:dialect "PostgreSQL"
+                   :tables  [{:id 1 :name "users" :schema "public"
+                              :description "App users" :column_names "id, name, email"}
+                             {:id 2 :name "orders" :schema nil
+                              :description nil :column_names "id, user_id, total"}]})]
+      (is (string? prompt))
+      (is (str/includes? prompt "PostgreSQL"))
+      (is (str/includes? prompt "users"))
+      (is (str/includes? prompt "orders"))
+      (is (str/includes? prompt "id, name, email")))))
+
+(deftest auto-select-tables-test
+  (mt/with-test-user :crowberto
+    (mt/with-temp [:model/Database db    {:engine :postgres}
+                   :model/Table    t1    {:db_id (:id db) :name "users" :schema "public"}
+                   :model/Field    _f1   {:table_id (:id t1) :name "id" :database_type "INTEGER" :base_type :type/Integer}
+                   :model/Table    t2    {:db_id (:id db) :name "orders" :schema "public"}
+                   :model/Field    _f2   {:table_id (:id t2) :name "id" :database_type "INTEGER" :base_type :type/Integer}]
+      (testing "returns valid table IDs selected by LLM"
+        (let [mock-response {:result      {:table_ids [(:id t1) (:id t2)]
+                                           :reasoning "Need users and orders"}
+                             :usage       {:model "claude-sonnet-4-5-20250929"
+                                           :prompt 200 :completion 50}
+                             :duration-ms 100}]
+          (snowplow-test/with-fake-snowplow-collector
+            (with-redefs [llm.anthropic/table-selection (constantly mock-response)]
+              (let [result (#'api/auto-select-tables (:id db) "show me users with orders" "PostgreSQL")]
+                (is (= #{(:id t1) (:id t2)} result)))))))
+
+      (testing "filters out hallucinated table IDs"
+        (let [mock-response {:result      {:table_ids [(:id t1) 999999]
+                                           :reasoning "Found users"}
+                             :usage       {:model "claude-sonnet-4-5-20250929"
+                                           :prompt 200 :completion 50}
+                             :duration-ms 100}]
+          (snowplow-test/with-fake-snowplow-collector
+            (with-redefs [llm.anthropic/table-selection (constantly mock-response)]
+              (let [result (#'api/auto-select-tables (:id db) "show me users" "PostgreSQL")]
+                (is (= #{(:id t1)} result))
+                (is (not (contains? result 999999))))))))
+
+      (testing "throws when LLM returns no valid table IDs"
+        (let [mock-response {:result      {:table_ids [999999]}
+                             :usage       {:model "claude-sonnet-4-5-20250929"
+                                           :prompt 200 :completion 50}
+                             :duration-ms 100}]
+          (snowplow-test/with-fake-snowplow-collector
+            (with-redefs [llm.anthropic/table-selection (constantly mock-response)]
+              (is (thrown-with-msg?
+                   clojure.lang.ExceptionInfo
+                   #"Could not identify relevant tables"
+                   (#'api/auto-select-tables (:id db) "gibberish" "PostgreSQL"))))))))))
+
+(deftest auto-select-tables-empty-db-test
+  (mt/with-test-user :crowberto
+    (mt/with-temp [:model/Database db {:engine :postgres}]
+      (testing "throws when database has no accessible tables"
+        (snowplow-test/with-fake-snowplow-collector
+          (is (thrown-with-msg?
+               clojure.lang.ExceptionInfo
+               #"No accessible tables"
+               (#'api/auto-select-tables (:id db) "test" "PostgreSQL"))))))))
+
+(deftest auto-select-tables-cap-test
+  (mt/with-test-user :crowberto
+    (testing "caps auto-selected tables at max-auto-selected-tables"
+      (let [max-cap        @#'api/max-auto-selected-tables
+            ;; Create fake table summaries with IDs 1..(max-cap + 5)
+            fake-ids       (vec (range 1 (+ max-cap 6)))
+            fake-summaries (mapv (fn [id] {:id id :name (str "t" id) :column_names "id"})
+                                 fake-ids)
+            mock-response  {:result      {:table_ids fake-ids
+                                          :reasoning "All tables"}
+                            :usage       {:model "claude-sonnet-4-5-20250929"
+                                          :prompt 200 :completion 50}
+                            :duration-ms 100}]
+        (snowplow-test/with-fake-snowplow-collector
+          (with-redefs [llm.context/build-table-summary-context (constantly fake-summaries)
+                        llm.anthropic/table-selection           (constantly mock-response)]
+            (let [result (#'api/auto-select-tables 1 "everything" "PostgreSQL")]
+              (is (<= (count result) max-cap))
+              (is (every? (set fake-ids) result)))))))))
+
+(deftest generate-sql-auto-selection-integration-test
+  (testing "generate-sql falls through to auto-selection when no tables specified"
+    (mt/with-temp [:model/Database db    {:engine :postgres}
+                   :model/Table    table {:db_id (:id db) :name "users" :schema "public"}
+                   :model/Field    _f1   {:table_id (:id table) :name "id" :database_type "INTEGER" :base_type :type/Integer}
+                   :model/Field    _f2   {:table_id (:id table) :name "name" :database_type "VARCHAR" :base_type :type/Text}]
+      (let [table-selection-called? (atom false)
+            mock-table-selection    {:result      {:table_ids [(:id table)]}
+                                     :usage       {:model "claude-sonnet-4-5-20250929"
+                                                   :prompt 200 :completion 50}
+                                     :duration-ms 100}
+            mock-chat-completion    {:result      {:sql "SELECT * FROM users"}
+                                     :usage       {:model "claude-sonnet-4-5-20250929"
+                                                   :prompt 1000 :completion 200}
+                                     :duration-ms 500}]
+        (mt/with-temporary-setting-values [llm-anthropic-api-key "sk-ant-test"]
+          (snowplow-test/with-fake-snowplow-collector
+            (with-redefs [llm.anthropic/table-selection (fn [_]
+                                                          (reset! table-selection-called? true)
+                                                          mock-table-selection)
+                          llm.anthropic/chat-completion (constantly mock-chat-completion)]
+              (let [response (mt/user-http-request :rasta :post 200 "llm/generate-sql"
+                                                   {:prompt      "show me all users"
+                                                    :database_id (:id db)})]
+                (is @table-selection-called?
+                    "auto-selection should be called when no tables specified")
+                (is (= "SELECT * FROM users" (:sql response)))))))))))
+
+(deftest generate-sql-skips-auto-selection-with-explicit-tables-test
+  (testing "generate-sql does NOT auto-select when tables are explicitly provided"
+    (mt/with-temp [:model/Database db    {:engine :postgres}
+                   :model/Table    table {:db_id (:id db) :name "users" :schema "public"}
+                   :model/Field    _f1   {:table_id (:id table) :name "id" :database_type "INTEGER" :base_type :type/Integer}]
+      (let [table-selection-called? (atom false)
+            mock-chat-completion    {:result      {:sql "SELECT * FROM users"}
+                                     :usage       {:model "claude-sonnet-4-5-20250929"
+                                                   :prompt 1000 :completion 200}
+                                     :duration-ms 500}]
+        (mt/with-temporary-setting-values [llm-anthropic-api-key "sk-ant-test"]
+          (snowplow-test/with-fake-snowplow-collector
+            (with-redefs [llm.anthropic/table-selection (fn [_]
+                                                          (reset! table-selection-called? true)
+                                                          nil)
+                          llm.anthropic/chat-completion (constantly mock-chat-completion)]
+              (mt/user-http-request :rasta :post 200 "llm/generate-sql"
+                                    {:prompt              "show me all users"
+                                     :database_id         (:id db)
+                                     :referenced_entities [{:model "table" :id (:id table)}]})
+              (is (not @table-selection-called?)
+                  "auto-selection should NOT be called when tables are explicitly provided"))))))))

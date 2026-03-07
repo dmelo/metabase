@@ -102,6 +102,72 @@
       (is (contains? (get-in tool [:input_schema :properties]) :sql))
       (is (= ["sql"] (get-in tool [:input_schema :required]))))))
 
+;;; ------------------------------------------- select-tables-tool Tests -------------------------------------------
+
+(deftest ^:parallel select-tables-tool-test
+  (testing "tool definition has correct structure"
+    (let [tool @#'anthropic/select-tables-tool]
+      (is (= "select_tables" (:name tool)))
+      (is (string? (:description tool)))
+      (is (= "object" (get-in tool [:input_schema :type])))
+      (is (contains? (get-in tool [:input_schema :properties]) :table_ids))
+      (is (= ["table_ids"] (get-in tool [:input_schema :required])))))
+
+  (testing "table_ids property is an array of integers"
+    (let [tool @#'anthropic/select-tables-tool
+          table-ids-prop (get-in tool [:input_schema :properties :table_ids])]
+      (is (= "array" (:type table-ids-prop)))
+      (is (= "integer" (get-in table-ids-prop [:items :type]))))))
+
+;;; ------------------------------------------- build-request-body with custom tool Tests -------------------------------------------
+
+(deftest build-request-body-custom-tool-test
+  (testing "uses custom tool when provided"
+    (let [custom-tool {:name         "select_tables"
+                       :description  "Select tables"
+                       :input_schema {:type       "object"
+                                      :properties {:table_ids {:type "array"}}
+                                      :required   ["table_ids"]}}
+          body (#'anthropic/build-request-body {:model    "claude-sonnet-4-5-20250929"
+                                                :messages [{:role "user" :content "test"}]
+                                                :tool     custom-tool})]
+      (is (= [{:name         "select_tables"
+               :description  "Select tables"
+               :input_schema {:type       "object"
+                              :properties {:table_ids {:type "array"}}
+                              :required   ["table_ids"]}}]
+             (:tools body)))
+      (is (= {:type "tool" :name "select_tables"} (:tool_choice body)))))
+
+  (testing "defaults to generate_sql tool when no tool provided"
+    (let [body (#'anthropic/build-request-body {:model    "claude-sonnet-4-5-20250929"
+                                                :messages [{:role "user" :content "test"}]})]
+      (is (= "generate_sql" (get-in body [:tool_choice :name]))))))
+
+;;; ------------------------------------------- table-selection Tests -------------------------------------------
+
+(deftest table-selection-returns-table-ids-test
+  (testing "table-selection returns result with table_ids"
+    (let [mock-response {:body {:id      "msg_456"
+                                :model   "claude-sonnet-4-5-20250929"
+                                :content [{:type  "tool_use"
+                                           :id    "tool_789"
+                                           :name  "select_tables"
+                                           :input {:table_ids [1 2 3]
+                                                   :reasoning "These tables are needed"}}]
+                                :usage   {:input_tokens  500
+                                          :output_tokens 50}}}]
+      (mt/with-temporary-setting-values [llm-anthropic-api-key "sk-ant-test-key"
+                                         llm-anthropic-model "claude-sonnet-4-5-20250929"]
+        (with-redefs [http/post (constantly mock-response)]
+          (let [result (anthropic/table-selection {:system   "You are a schema analyst"
+                                                   :messages [{:role "user" :content "show users"}]})]
+            (is (= [1 2 3] (get-in result [:result :table_ids])))
+            (is (= "These tables are needed" (get-in result [:result :reasoning])))
+            (is (pos? (:duration-ms result)))
+            (is (= 500 (get-in result [:usage :prompt])))
+            (is (= 50 (get-in result [:usage :completion])))))))))
+
 ;;; ------------------------------------------- chat-completion Tests -------------------------------------------
 
 (deftest chat-completion-not-configured-test
